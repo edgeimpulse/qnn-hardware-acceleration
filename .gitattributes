@@ -1,0 +1,2 @@
+app/src/main/cpp/tflite/edge-impulse-sdk/third_party/arc_mli_package/bin/emsdp_em11d_em9d_dfss/release/libmli.a filter=lfs diff=lfs merge=lfs -text
+app/src/main/cpp/tflite/tflite-model/tflite_learn_650178_10.tflite filter=lfs diff=lfs merge=lfs -text
