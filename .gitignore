@@ -21,3 +21,8 @@ local.properties
 *.so
 *.a
 *.bin
+*.zip
+*.tflite
+*.so
+*.a
+*.bin
