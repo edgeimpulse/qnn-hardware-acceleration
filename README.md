@@ -1,5 +1,67 @@
 # QNN Hardware Acceleration (Android)
 
+
+### Prerequisits
+
+Locate your QAIRT install
+
+Common locations:
+```
+macOS/Linux: /opt/qairt/<version>/ or ~/qairt/<version>/
+
+Windows: C:\qairt\<version>\
+```
+You’re looking for the folder that contains libQnnTFLiteDelegate.so for Android arm64.
+
+Find the delegate directory
+
+macOS/Linux (terminal):
+```
+# replace /opt/qairt/2.xx with your path
+find /opt/qairt/2.xx -type f -name libQnnTFLiteDelegate.so
+```
+
+Windows:
+
+Open File Explorer on C:\qairt\<version>\
+
+Use the search box for libQnnTFLiteDelegate.so
+
+The parent folder of that file is your source directory (it usually also contains the other libQnn*.so runtime libs).
+
+Create the destination in your project
+```
+app/src/main/jniLibs/arm64-v8a/
+```
+
+Copy the required libraries
+From the delegate directory you found in step 2, copy into app/src/main/jniLibs/arm64-v8a/:
+
+Required
+```
+libQnnTFLiteDelegate.so
+
+All QNN runtimes you need (at minimum the HTP set):
+
+libQnnHtp.so
+
+libQnnHtpV**.so (e.g., V68/V69/V75/V79 — match your device generation)
+
+libQnnHtpV**Skel.so
+
+libQnnSystem.so
+
+libQnnIr.so
+
+libQnnSaver.so (if included in your drop)
+
+libPlatformValidatorShared.so (if included)
+
+Optional
+
+libcdsprpc.so (some devices provide this from /vendor; including it here is harmless)
+
+```
 Android + NDK sample showing how to run Edge Impulse inference on-device and enable **Qualcomm® AI Engine Direct (QNN) TFLite Delegate** for acceleration on supported Snapdragon™ devices.
 
 ## What’s inside
