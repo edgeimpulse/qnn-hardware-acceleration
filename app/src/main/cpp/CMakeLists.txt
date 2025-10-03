@@ -5,10 +5,7 @@
 # Sets the minimum CMake version required for this project.
 cmake_minimum_required(VERSION 3.22.1)
 
-# Declares the project name. The project name can be accessed via ${ PROJECT_NAME},
-# Since this is the top level CMakeLists.txt, the project name is also accessible
-# with ${CMAKE_PROJECT_NAME} (both CMake variables are in-sync within the top level
-# build script scope).
+
 project("test_camera")
 
 set(CMAKE_VERBOSE_MAKEFILE TRUE)
@@ -24,26 +21,27 @@ set(EI_SDK_FOLDER edge-impulse-sdk)
 # Set TensorFlow Lite library path for 64-bit ARM (arm64-v8a)
 set(TFLITE_LIB_DIR ${CMAKE_SOURCE_DIR}/tflite/android64)
 
+
+#QNN     -DEI_CLASSIFIER_ENABLE_QNN_DELEGATE=1
 add_definitions(-DEI_CLASSIFIER_ENABLE_DETECTION_POSTPROCESS_OP=1
     -DEI_CLASSIFIER_USE_FULL_TFLITE=1
-    -DNDEBUG
+    -DEI_CLASSIFIER_ENABLE_QNN_DELEGATE=1
+        -DNDEBUG
 )
+
+## QNN Deligate enabled -          com.example.test_camera              I  E2E_inference_ms=60.663281
+#2025-10-03 18:29:39.837  7610-7610  MainActivity            com.example.test_camera              I  EI_timing_us dsp=5260 cls=11707 anom=0
+
+## QNN Disabled  - -10-03 18:30:42.008  7610-7610  MainActivity            com.example.test_camera              I  EI_timing_us dsp=5714 cls=7070 anom=0
+#2025-10-03 18:30:42.020  7610-7610  OpenGLRenderer          com.example.test_camera              D  onFlyCompress
+#2025-10-03 18:30:42.050  7610-7677  MainActivity            com.example.test_camera              I  E2E_inference_ms=21.06401
+#2025-10-03 18:30:42.050  7610-7610  MainActivity            com.example.test_camera              I  EI_timing_us dsp=3446 cls=5171 anom=0
+#2025-10-03 18:30:42.086  7610-7610  OpenGLRenderer          com.example.test_camera              D  onFlyCompress
+
 
 link_directories(${CMAKE_SOURCE_DIR}/tflite/android64)
 
-# Creates and names a library, sets it as either STATIC
-# or SHARED, and provides the relative paths to its source code.
-# You can define multiple libraries, and CMake builds them for you.
-# Gradle automatically packages shared libraries with your APK.
-#
-# In this top level CMakeLists.txt, ${CMAKE_PROJECT_NAME} is used to define
-# the target library name; in the sub-module's CMakeLists.txt, ${PROJECT_NAME}
-# is preferred for the same purpose.
-#
-# In order to load a library into your app from Java/Kotlin, you must call
-# System.loadLibrary() and pass the name of the library defined here;
-# for GameActivity/NativeActivity derived applications, the same library name must be
-# used in the AndroidManifest.xml file.
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         native-lib.cpp)
@@ -79,10 +77,6 @@ LIST(APPEND EI_SOURCE_FILES "${EI_SDK_FOLDER}/tensorflow/lite/c/common.c")
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${EI_SOURCE_FILES})
 
-# Specifies libraries CMake should link to your target library. You
-# can link libraries from various origins, such as libraries defined in this
-# build script, prebuilt third-party libraries, or Android system libraries.
-# Add TensorFlow Lite and dependencies
 target_link_libraries(${CMAKE_PROJECT_NAME}
         ${TFLITE_LIB_DIR}/libtensorflow-lite.a
         android
