@@ -3,7 +3,7 @@
 
 ### Prerequisits
 
-Locate your QAIRT install
+Locate your QAIRT libs from https://www.qualcomm.com/developer/software/qualcomm-ai-engine-direct-sdk
 
 Common locations:
 ```
