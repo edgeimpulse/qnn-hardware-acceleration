@@ -21,9 +21,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class InferenceResult(
     val classification: Map<String, Float>?,
@@ -32,68 +32,74 @@ data class InferenceResult(
     val anomalyResult: Map<String, Float>?,
     val timing: Timing
 )
-data class BoundingBox(val label: String, val confidence: Float, val x: Int, val y: Int, val width: Int, val height: Int)
-data class Timing(val sampling: Int, val dsp: Int, val classification: Int, val anomaly: Int, val dsp_us: Long, val classification_us: Long, val anomaly_us: Long)
+
+data class BoundingBox(
+    val label: String,
+    val confidence: Float,
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int
+)
+
+data class Timing(
+    val sampling: Int,
+    val dsp: Int,
+    val classification: Int,
+    val anomaly: Int,
+    val dsp_us: Long,
+    val classification_us: Long,
+    val anomaly_us: Long
+)
 
 private const val TAG = "MainActivity"
 private const val REQ = 1001
 
-class BoundingBoxOverlay(ctx: android.content.Context, attrs: android.util.AttributeSet? = null) : View(ctx, attrs) {
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED; style = Paint.Style.STROKE; strokeWidth = 4f }
-    private val anom = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED; style = Paint.Style.FILL; alpha = 60 }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 36f }
-    var boundingBoxes: List<BoundingBox> = emptyList()
-        set(v) { field = v; invalidate() }
-    override fun onDraw(c: Canvas) {
-        val W = width; val H = height
-        for (b in boundingBoxes) {
-            val r = Rect(b.x, b.y, (b.x + b.width).coerceAtMost(W), (b.y + b.height).coerceAtMost(H))
-            if (b.label.equals("anomaly", true)) {
-                c.drawRect(r, anom)
-                txt.textAlign = Paint.Align.CENTER
-                c.drawText(String.format("%.2f", b.confidence), r.exactCenterX(), r.exactCenterY(), txt)
-            } else {
-                c.drawRect(r, stroke)
-                c.drawText("${b.label} ${(b.confidence * 100).toInt()}%", r.left.toFloat(), (r.top - 10).toFloat(), txt)
-            }
-        }
-    }
-}
-
 class MainActivity : ComponentActivity() {
+
+    // JNI bridges as member functions
+    private external fun setEnvVar(name: String, value: String): Int
+    private external fun passToCpp(imageData: ByteArray, overlayW: Int, overlayH: Int): InferenceResult?
 
     private lateinit var textureView: TextureView
     private lateinit var overlay: BoundingBoxOverlay
     private lateinit var resultText: TextView
 
-    // Camera2
     private lateinit var cameraManager: CameraManager
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
     private var imageReader: ImageReader? = null
     private val openCloseLock = Semaphore(1)
+    private val running = AtomicBoolean(false) // prevent overlapping JNI calls
 
-    // Stream config (conservative)
     private val streamSize = Size(640, 480)
 
-    init { try { System.loadLibrary("test_camera") } catch (t: Throwable) { Log.w(TAG, "JNI not loaded: ${t.message}") } }
-    private external fun passToCpp(imageData: ByteArray): InferenceResult?
+    init {
+        try { System.loadLibrary("test_camera") }
+        catch (t: Throwable) { Log.w(TAG, "JNI not loaded: ${t.message}") }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // QNN env early
+        val libDir = applicationInfo.nativeLibraryDir
+        setEnvVar("ADSP_LIBRARY_PATH", "$libDir:/system/lib/rfsa/adsp:/system/vendor/lib/rfsa/adsp:/dsp")
+        setEnvVar("LD_LIBRARY_PATH", "$libDir:" + (System.getenv("LD_LIBRARY_PATH") ?: ""))
+        setEnvVar("QNN_LOG_LEVEL", "info")
+        setEnvVar("QNN_TFLITE_DELEGATE_OPTIONS",
+            """{"backend":"htp","profiling":true,"profiling_file_path":"/sdcard/qnn_profile.json"}"""
+        )
 
         textureView = findViewById(R.id.textureView)
         overlay = findViewById(R.id.boundingBoxOverlay)
         resultText = findViewById(R.id.resultTextView)
 
         cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
-
         if (!hasCamPerm()) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQ)
-        } else {
-            startWhenReady()
-        }
+        } else startWhenReady()
     }
 
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, g: IntArray) {
@@ -102,7 +108,9 @@ class MainActivity : ComponentActivity() {
         else resultText.text = "Camera permission required"
     }
 
-    private fun hasCamPerm() = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    private fun hasCamPerm() =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
 
     private fun startWhenReady() {
         if (!textureView.isAvailable) {
@@ -169,7 +177,6 @@ class MainActivity : ComponentActivity() {
                         addTarget(previewSurface)
                         addTarget(imageReader!!.surface)
                         set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                        // Range import fixed:
                         set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(15, 30))
                     }.build()
                     session.setRepeatingRequest(req, null, null)
@@ -186,13 +193,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun processImage(image: Image) {
+        // throttle so we don't overlap a JNI call while a new frame arrives
+        if (!running.compareAndSet(false, true)) return
         try {
-            val rgb = yuv420ToRgb888(image)
+            val rgb = yuv420ToRgb888(image) // 640x480 RGB888
+            val ow = overlay.width.takeIf { it > 0 } ?: textureView.width
+            val oh = overlay.height.takeIf { it > 0 } ?: textureView.height
+
             GlobalScope.launch(Dispatchers.IO) {
-                val res = try { passToCpp(rgb) } catch (t: Throwable) { Log.w(TAG, "JNI fail: ${t.message}"); null }
-                withContext(Dispatchers.Main) { display(res) }
+                val t0 = System.nanoTime()
+                val res = try { passToCpp(rgb, ow, oh) } catch (t: Throwable) {
+                    Log.w(TAG, "JNI fail: ${t.message}"); null
+                }
+                val e2eMs = (System.nanoTime() - t0) / 1_000_000.0
+                Log.i(TAG, "E2E_inference_ms=$e2eMs")
+                withContext(Dispatchers.Main) {
+                    display(res)
+                    running.set(false)
+                }
             }
         } catch (t: Throwable) {
+            running.set(false)
             Log.e(TAG, "processImage", t)
         }
     }
@@ -203,11 +224,14 @@ class MainActivity : ComponentActivity() {
             overlay.boundingBoxes = emptyList()
             return
         }
+        Log.i(TAG, "EI_timing_us dsp=${res.timing.dsp_us} cls=${res.timing.classification_us} anom=${res.timing.anomaly_us}")
+
         val sb = StringBuilder()
         res.classification?.maxByOrNull { it.value }?.let { sb.append("Top: ${it.key} ${(it.value * 100).toInt()}%  ") }
         res.anomalyResult?.get("anomaly")?.let { sb.append("Anomaly: ${(it * 100).toInt()}%  ") }
         res.objectDetections?.let { if (it.isNotEmpty()) sb.append("Detections: ${it.size}") }
         resultText.text = if (sb.isNotEmpty()) sb.toString() else "Running…"
+
         overlay.boundingBoxes = res.objectDetections ?: emptyList()
     }
 
@@ -254,6 +278,38 @@ class MainActivity : ComponentActivity() {
         } catch (_: InterruptedException) {
         } finally {
             openCloseLock.release()
+        }
+    }
+}
+
+/** Overlay draws boxes already scaled by JNI. */
+class BoundingBoxOverlay(
+    ctx: android.content.Context,
+    attrs: android.util.AttributeSet? = null
+) : View(ctx, attrs) {
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED; style = Paint.Style.STROKE; strokeWidth = 4f }
+    private val anom = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED; style = Paint.Style.FILL; alpha = 60 }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 36f }
+    var boundingBoxes: List<BoundingBox> = emptyList()
+        set(v) { field = v; invalidate() }
+
+    override fun onDraw(c: Canvas) {
+        val W = width; val H = height
+        for (b in boundingBoxes) {
+            val r = Rect(
+                b.x.coerceIn(0, W),
+                b.y.coerceIn(0, H),
+                (b.x + b.width).coerceIn(0, W),
+                (b.y + b.height).coerceIn(0, H)
+            )
+            if (b.label.equals("anomaly", true)) {
+                c.drawRect(r, anom)
+                txt.textAlign = Paint.Align.CENTER
+                c.drawText(String.format("%.2f", b.confidence), r.exactCenterX(), r.exactCenterY(), txt)
+            } else {
+                c.drawRect(r, stroke)
+                c.drawText("${b.label} ${(b.confidence * 100).toInt()}%", r.left.toFloat(), (r.top - 10).toFloat(), txt)
+            }
         }
     }
 }
