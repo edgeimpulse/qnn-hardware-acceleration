@@ -2,6 +2,13 @@
 
 Demonstrating Object counting as we move on to more advanced use cases
 
+
+## Script WIP for QNN Libs 
+
+```
+sh ./fetchqnnlibs.sh
+```
+
 ### First Download the Qualcomm SDK
 
 <img width="466" height="252" alt="image" src="https://github.com/user-attachments/assets/aff006dc-1129-4e8a-a56a-5fbc05fc0472" />
