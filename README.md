@@ -5,6 +5,9 @@ Demonstrating Object counting as we move on to more advanced use cases
 
 ## Script WIP for QNN Libs 
 
+<img width="1026" height="174" alt="image" src="https://github.com/user-attachments/assets/a13eee47-77ae-4098-bb92-76ce58820ef7" />
+
+
 ```
 sh ./fetchqnnlibs.sh
 ```
