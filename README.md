@@ -5,7 +5,7 @@ This is an Android sample app that runs an Edge Impulse object detection model o
 The app reads frames from the camera with Camera2, runs the Edge Impulse C++ inferencing SDK through JNI, and draws the bounding boxes it gets back over the preview.
 
 > [!WARNING]
-> This sample is a work in progress. The QNN delegate isn't compiled in by the current build configuration, so the app runs on the CPU until you complete [Enable the QNN delegate](#enable-the-qnn-delegate). The repository doesn't publish performance numbers. See [Measure performance](#measure-performance) to take your own.
+> This sample is a work in progress. The default build doesn't compile in the QNN delegate, so the app runs on the CPU until you complete [Enable the QNN delegate](#enable-the-qnn-delegate).
 
 ![The sample app on an Android device, showing a camera view of a model car park with red bounding boxes labeled "vehicle" and a confidence score, and a status line reading "Detections: 7".](https://github.com/user-attachments/assets/aff006dc-1129-4e8a-a56a-5fbc05fc0472)
 
@@ -65,7 +65,7 @@ adb logcat -s MainActivity
 
 The Edge Impulse SDK creates the QNN delegate (HTP backend) when it loads the model, but only if you compile with `EI_CLASSIFIER_USE_QNN_DELEGATES`. See `edge-impulse-sdk/classifier/inferencing_engines/tflite_full.h`.
 
-`CMakeLists.txt` currently defines `EI_CLASSIFIER_ENABLE_QNN_DELEGATE=1` instead, and the SDK doesn't read that name. As a result, the delegate code isn't compiled and inference runs on the CPU.
+`CMakeLists.txt` defines `EI_CLASSIFIER_ENABLE_QNN_DELEGATE=1`, which the SDK doesn't read. As a result, the delegate code isn't compiled and inference runs on the CPU.
 
 To build with the delegate, do the following.
 
@@ -106,7 +106,7 @@ The QAIRT release notes list the TensorFlow Lite version that the delegate suppo
 
 ### 4. Update the manifest and the packaging options
 
-The QAIRT documentation asks Android apps to do two more things. Make both changes, because the current project doesn't include either one:
+Android apps that use the QNN delegate also need these two changes:
 
 1. Allow the app to load the FastRPC library from the vendor partition. Add this inside `<application>` in `app/src/main/AndroidManifest.xml`:
 
@@ -157,7 +157,7 @@ You can also look for QNN log lines in `adb logcat`. Seeing the delegate in the 
 
 ## Measure performance
 
-Speed depends on the model, the SoC, the QAIRT version, and the device's thermal state, so this repository doesn't publish numbers. To compare the CPU and the NPU on your own device:
+Speed depends on the model, the SoC, the QAIRT version, and the device's thermal state. To compare the CPU and the NPU on your device:
 
 1. Build and run the CPU version, wait for the timings to settle, and record `EI_timing_us cls=` and `E2E_inference_ms` over at least a few hundred frames.
 2. Enable the delegate, confirm that it loaded, and repeat the measurement in the same conditions.
